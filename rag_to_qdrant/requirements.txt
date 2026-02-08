@@ -1,0 +1,4 @@
+# rag_to_qdrant 依赖
+qdrant-client>=1.7.0
+requests>=2.31.0
+watchdog>=3.0.0

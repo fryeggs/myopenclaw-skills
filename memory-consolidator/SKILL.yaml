@@ -1,0 +1,59 @@
+---
+name: memory-consolidator
+description: "定时增量合并 Claude Memory 文件，自动去重并生成精简摘要"
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      bins: ["python3"]
+      env:
+        - "ANTHROPIC_API_KEY"
+    triggers:
+      - "cron:*/50 * * * *"  # 每 50 分钟执行
+    source:
+      - "~/.claude/CLAUDE.md"
+      - "~/.openclaw/MEMORY.md"
+      - "~/.openclaw/workspace/memory/*.md"
+    output:
+      - "~/.openclaw/qmd_memory/"
+---
+
+# Memory Consolidator
+
+自动合并和精简 Claude Memory 文件的工具。
+
+## 功能
+
+- **定时执行**: 每 50 分钟自动运行（cron）
+- **变化检测**: 使用 hash 对比检测文件变化
+- **智能提炼**: 调用 Claude API 精简内容
+- **增量更新**: 仅处理变更内容
+- **自动去重**: 去除重复内容
+
+## 使用方式
+
+```bash
+# 手动执行
+python3 ~/.openclaw/skills/memory-consolidator/scripts/main.py
+
+# 查看日志
+cat ~/.openclaw/logs/memory-consolidator.log
+```
+
+## 源文件
+
+- `~/.claude/CLAUDE.md` - Claude Code 全局知识库
+- `~/.openclaw/workspace/memory/*.md` - 每日学习记录
+- `~/.openclaw/MEMORY.md` - 长期记忆（如果存在）
+
+## 输出
+
+- `~/.openclaw/qmd_memory/consolidated.md` - 合并后的精简记忆
+- `~/.openclaw/qmd_memory/.hashes.json` - 文件 hash 记录
+
+## 配置
+
+在 `references/config.json` 中配置：
+- API key
+- 处理规则
+- 输出格式

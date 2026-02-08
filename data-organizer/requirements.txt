@@ -1,0 +1,10 @@
+# data-organizer 依赖
+# 仅使用 Python 标准库，无需额外安装
+# - os, json, csv, pathlib, datetime, typing (内置)
+# - subprocess (内置)
+
+# 可选依赖（按需安装）：
+# openpyxl>=3.1.0    # Excel 文件支持
+# python-docx>=1.1.0  # Word 文件支持
+# PyPDF2>=3.0.0      # PDF 文件支持
+# pillow>=10.0.0     # 图片 OCR 支持
