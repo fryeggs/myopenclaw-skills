@@ -1,0 +1,24 @@
+{
+  "name": "github-find-context7",
+  "version": "1.0.0",
+  "description": "Integrated GitHub operations, discovery, analysis, and documentation skill for OpenClaw",
+  "main": "github-find-context7",
+  "scripts": {
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "openclaw",
+    "skill",
+    "github",
+    "discovery",
+    "context7",
+    "analysis",
+    "deployment"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

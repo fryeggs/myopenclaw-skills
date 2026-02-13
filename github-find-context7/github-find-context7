@@ -1,0 +1,248 @@
+#!/bin/bash
+#
+# GitHub Find Context7 Skill - Main Entry Point
+# Integrated GitHub operations, discovery, analysis, and documentation
+#
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="/home/qingshan/.openclaw/github-find-context7"
+GITHUB_TOKEN="${GITHUB_TOKEN:-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}"
+
+# Load modules from module directory
+if [[ -f "${MODULE_DIR}/finder.sh" ]]; then
+    source "${MODULE_DIR}/finder.sh"
+else
+    echo "Error: finder.sh not found in ${MODULE_DIR}"
+    exit 1
+fi
+[[ -f "${MODULE_DIR}/analyzer.sh" ]] && source "${MODULE_DIR}/analyzer.sh"
+[[ -f "${MODULE_DIR}/context7.sh" ]] && source "${MODULE_DIR}/context7.sh"
+[[ -f "${MODULE_DIR}/deployer.sh" ]] && source "${MODULE_DIR}/deployer.sh"
+[[ -f "${MODULE_DIR}/github.sh" ]] && source "${MODULE_DIR}/github.sh"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Print banner
+print_banner() {
+    cat << 'EOF'
+╔═══════════════════════════════════════════════════════════════════════╗
+║         GitHub Find Context7 Skill v1.0                         ║
+║                                                                       ║
+║  Integrated GitHub operations, discovery, analysis, and docs         ║
+║                                                                       ║
+║  Features:                                                           ║
+║  🔍 Discovery   - Search GitHub projects and skills                  ║
+║  🛠️  GitHub Core - Create, fix, iterate repositories, issues, PRs     ║
+║  📊 Analysis    - Project health, activity, comparison                ║
+║  📚 Documentation - Context7 library docs, API references             ║
+║  🚀 Deployment  - Deployment guides for various platforms            ║
+╚═══════════════════════════════════════════════════════════════════════╝
+EOF
+}
+
+# Print help
+print_help() {
+    print_banner
+    cat << 'EOF'
+
+Usage: /use github-find-context7 <command> [options]
+
+═══════════════════════════════════════════════════════════════════════
+🔍 DISCOVERY COMMANDS (发现与搜索)
+═══════════════════════════════════════════════════════════════════════
+  find [query] [language]      Search GitHub repositories
+  code [query] [repo]          Search code in repositories
+  issues [query] [type]        Search issues and PRs
+  users [query]                Search GitHub users
+  trending [language]          Show trending repositories
+  details [repo]               Get repository details
+
+═══════════════════════════════════════════════════════════════════════
+🛠️  GITHUB CORE COMMANDS (GitHub 核心操作)
+═══════════════════════════════════════════════════════════════════════
+  create [name] [desc]         Create new repository
+  clone [repo] [dir]           Clone repository
+  fork [repo]                  Fork repository
+  info [repo]                  Get repository information
+  issue-create [repo] [title]  Create new issue
+  issues [repo] [state]        List issues
+  pr-create [repo] [title]     Create pull request
+  prs [repo] [state]           List pull requests
+
+═══════════════════════════════════════════════════════════════════════
+📊 ANALYSIS COMMANDS (分析与研究)
+═══════════════════════════════════════════════════════════════════════
+  health [repo]                Analyze repository health score
+  compare [repo1] [repo2]      Compare two repositories
+  activity [repo] [days]       Analyze commit activity
+  contributors [repo]          List contributors
+
+═══════════════════════════════════════════════════════════════════════
+📚 DOCUMENTATION COMMANDS (文档查询)
+═══════════════════════════════════════════════════════════════════════
+  docs [library]               Get library documentation
+  api [library]                Get API reference links
+  examples [library]           Find code examples
+
+═══════════════════════════════════════════════════════════════════════
+🚀 DEPLOYMENT COMMANDS (部署指南)
+═══════════════════════════════════════════════════════════════════════
+  guide [repo] [platform]      Generate deployment guide
+  vercel [repo]                Vercel deployment guide
+  docker [repo]                Docker deployment guide
+  database [type]              Database setup guide
+
+═══════════════════════════════════════════════════════════════════════
+ℹ️  UTILITY COMMANDS
+═══════════════════════════════════════════════════════════════════════
+  help                         Show this help message
+  version                      Show skill version
+
+═══════════════════════════════════════════════════════════════════════
+📝 EXAMPLES
+═══════════════════════════════════════════════════════════════════════
+
+  # Discovery
+  /use github-find-context7 find react performance
+  /use github-find-context7 code 'useState' facebook/react
+  /use github-find-context7 details facebook/react
+
+  # GitHub Operations
+  /use github-find-context7 create myproject "My new project"
+  /use github-find-context7 clone facebook/react
+  /use github-find-context7 issues facebook/react open
+
+  # Analysis
+  /use github-find-context7 health facebook/react
+  /use github-find-context7 compare facebook/react google/prettier
+
+  # Documentation
+  /use github-find-context7 docs react
+  /use github-find-context7 api express
+
+  # Deployment
+  /use github-find-context7 guide facebook/react
+  /use github-find-context7 docker my-org/myapp
+
+EOF
+}
+
+# Main entry point
+main() {
+    local command="${1:-help}"
+    shift || true
+    
+    case "$command" in
+        # Discovery commands
+        find|search|repo|repos|repository)
+            finder_main repo "$@"
+            ;;
+        code)
+            finder_main code "$@"
+            ;;
+        issues|issue|prs|pr)
+            finder_main issues "$@"
+            ;;
+        users|user)
+            finder_main users "$@"
+            ;;
+        trending)
+            finder_main trending "$@"
+            ;;
+        details|info)
+            finder_main details "$@"
+            ;;
+        
+        # GitHub core commands
+        create|new|init)
+            github_main create "$@"
+            ;;
+        clone|cloning)
+            github_main clone "$@"
+            ;;
+        fork|forking)
+            github_main fork "$@"
+            ;;
+        repo-info|repoinfo)
+            github_main info "$@"
+            ;;
+        issue-create|create-issue)
+            github_main issue-create "$@"
+            ;;
+        issues|list-issues)
+            github_main issues "$@"
+            ;;
+        pr-create|create-pr)
+            github_main pr-create "$@"
+            ;;
+        prs|list-prs|pull-requests)
+            github_main prs "$@"
+            ;;
+        
+        # Analysis commands
+        health|analyze|analysis)
+            analyzer_main health "$@"
+            ;;
+        compare|comparison)
+            analyzer_main compare "$@"
+            ;;
+        activity)
+            analyzer_main activity "$@"
+            ;;
+        contributors)
+            analyzer_main contributors "$@"
+            ;;
+        
+        # Documentation commands
+        docs|documentation|lib|library)
+            context7_main docs "$@"
+            ;;
+        api|reference)
+            context7_main api "$@"
+            ;;
+        examples|code-examples)
+            context7_main examples "$@"
+            ;;
+        
+        # Deployment commands
+        guide|deploy|deployment)
+            deployer_main guide "$@"
+            ;;
+        vercel)
+            deployer_main vercel "$@"
+            ;;
+        docker|container)
+            deployer_main docker "$@"
+            ;;
+        database|db)
+            deployer_main database "$@"
+            ;;
+        
+        # Utility commands
+        help|--help|-h|"")
+            print_help
+            ;;
+        version|--version|-v)
+            echo "GitHub Find Context7 Skill v1.0"
+            echo "Built: 2026-02-02"
+            ;;
+        
+        # Unknown command
+        *)
+            echo -e "${RED}Unknown command: $command${NC}"
+            echo ""
+            echo "Use: /use github-find-context7 help"
+            echo "     to see all available commands"
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
