@@ -1,0 +1,18 @@
+{
+  "sources": [
+    "~/.claude/CLAUDE.md",
+    "~/.openclaw/MEMORY.md",
+    "~/.openclaw/workspace/memory/*.md"
+  ],
+  "output_dir": "~/.openclaw/qmd_memory",
+  "cron_interval_minutes": 50,
+  "model": "minimax/MiniMax-M2.1",
+  "api_base_url": "https://api.minimaxi.com/anthropic",
+  "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+  "deduplication_threshold": 0.85,
+  "max_content_length": 50000,
+  "enable_logging": true,
+  "log_dir": "~/.openclaw/qmd_memory/logs",
+  "require_api_key": true,
+  "env_file": "~/.claude/.env"
+}

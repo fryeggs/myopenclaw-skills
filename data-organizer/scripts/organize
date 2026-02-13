@@ -1,0 +1,21 @@
+#!/bin/bash
+# Wrapper 脚本：自动选择正确的 Python 版本以支持 PaddleOCR
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 检测可用的 Python 版本
+for py in python3.10 python3.11 python3; do
+    if $py -c "from paddleocr import PaddleOCR" 2>/dev/null; then
+        PYTHON_CMD="$py"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+    PYTHON_CMD="python3"
+    echo "[organize] 警告: 未检测到 PaddleOCR，OCR 功能不可用"
+fi
+
+echo "[organize] 使用: $PYTHON_CMD"
+
+exec $PYTHON_CMD "$SCRIPT_DIR/organizer.py" "$@"

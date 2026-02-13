@@ -166,8 +166,8 @@ class MemoryManager:
         return memories
 
     def search_memories(self, query: str) -> List[Dict]:
-"""
-        results =        """搜索记忆 []
+        """搜索记忆 []"""
+        results = []
         query_lower = query.lower()
         if self.memory_dir.exists():
             for mem_file in self.memory_dir.glob("*.json"):

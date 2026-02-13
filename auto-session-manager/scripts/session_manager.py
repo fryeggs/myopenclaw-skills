@@ -133,24 +133,31 @@ def main():
     parser.add_argument("--switch", type=str, help="切换到指定会话")
     parser.add_argument("--info", type=str, help="查看会话详情")
     parser.add_argument("--current", action="store_true", help="查看当前会话")
-    
+    parser.add_argument("--json", action="store_true", help="JSON 输出模式")
+
     args = parser.parse_args()
-    
+
     manager = SessionManager()
-    
+
     if args.list:
         sessions = manager.list_sessions()
-        print(f"\n📋 会话列表 (共 {len(sessions)} 个):\n")
-        for s in sessions:
-            print(f"  • {s['session_id']} | {s['topic']} | {s['created_at'][:10]} | {s['status']}")
-        print()
-    
+        if args.json:
+            print(json.dumps(sessions))
+        else:
+            print(f"\n📋 会话列表 (共 {len(sessions)} 个):\n")
+            for s in sessions:
+                print(f"  • {s['session_id']} | {s['topic']} | {s['created_at'][:10]} | {s['status']}")
+            print()
+
     elif args.create:
         session = manager.create_session(topic=args.topic, parent_session=args.parent)
-        print(f"\n✅ 会话已创建:")
-        print(f"  ID: {session['session_id']}")
-        print(f"  Topic: {session['topic']}")
-        print(f"  继承的关键信息: {len(session['inherited_context'])} 条\n")
+        if args.json:
+            print(json.dumps(session))
+        else:
+            print(f"\n✅ 会话已创建:")
+            print(f"  ID: {session['session_id']}")
+            print(f"  Topic: {session['topic']}")
+            print(f"  继承的关键信息: {len(session['inherited_context'])} 条\n")
     
     elif args.switch:
         session = manager.get_session(args.switch)

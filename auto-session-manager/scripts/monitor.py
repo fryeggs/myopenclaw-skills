@@ -35,11 +35,11 @@ MEMORY_DIR = STATE_DIR / ".session_memory"
 # 默认配置
 DEFAULT_CONFIG = {
     "context_threshold": 80,          # 上下文阈值 %
-    "gateway_timeout": 180,           # Gateway 超时秒
-    "monitor_interval": 60,            # 监控间隔秒
+    "gateway_timeout": 300,            # Gateway 超时秒（5分钟）
+    "monitor_interval": 180,           # 监控间隔秒（3分钟，避免频繁）
     "minimax_quota_threshold": 100,   # MiniMax 额度告警阈值
     "restart_max_attempts": 3,        # 最大重启尝试次数
-    "restart_cooldown": 60,           # 重启冷却时间秒
+    "restart_cooldown": 120,           # 重启冷却时间秒（2分钟）
 }
 
 
@@ -99,11 +99,10 @@ class ASMMonitor:
 
     def check_context_usage(self) -> Optional[Dict]:
         """
-        检查当前会话上下文使用率
+        检查当前 OpenClaw 所有会话的上下文使用率
 
         Returns:
-            Dict: {session_id, usage_percent, needs_summary}
-            None: 无法获取上下文信息
+            Dict: 包含各会话的使用率信息
         """
         sessions_json = Path.home() / ".openclaw" / "agents" / "main" / "sessions" / "sessions.json"
 
@@ -115,33 +114,175 @@ class ASMMonitor:
             with open(sessions_json, 'r', encoding='utf-8') as f:
                 sessions = json.load(f)
 
-            # 查找活跃会话
-            active_sessions = sessions.get("active", [])
-            if not active_sessions:
-                return None
+            results = []
+            highest_usage = 0
+            highest_session = None
 
-            latest_session = max(active_sessions, key=lambda x: x.get("createdAt", 0))
-            session_id = latest_session.get("id")
+            # sessions.json 格式是字典: {session_key: session_data}
+            for key, session_data in sessions.items():
+                if 'agent:main' not in key:
+                    continue
 
-            # 估算上下文使用率（基于消息数量和 token 估算）
-            messages = latest_session.get("messages", [])
-            msg_count = len(messages)
+                total_tokens = session_data.get('totalTokens', 0)
+                context_limit = session_data.get('contextTokens', 200000)
+                usage_percent = (total_tokens / context_limit * 100) if context_limit > 0 else 0
 
-            # 粗略估算：每条消息约 500 token，Claude 上下文窗口约 200K
-            estimated_tokens = msg_count * 500
-            usage_percent = min(100, (estimated_tokens / 200000) * 100)
+                # 提取 topic
+                topic_id = ""
+                if 'topic' in key:
+                    topic_id = key.split('topic:')[-1] if 'topic:' in key else ""
+
+                results.append({
+                    "session_key": key,
+                    "session_id": session_data.get('sessionId', key),
+                    "total_tokens": total_tokens,
+                    "context_limit": context_limit,
+                    "usage_percent": round(usage_percent, 2),
+                    "topic_id": topic_id,
+                    "needs_summary": usage_percent >= self.config["context_threshold"]
+                })
+
+                if usage_percent > highest_usage:
+                    highest_usage = usage_percent
+                    highest_session = results[-1]
 
             return {
-                "session_id": session_id,
-                "usage_percent": usage_percent,
-                "message_count": msg_count,
-                "needs_summary": usage_percent >= self.config["context_threshold"],
-                "topic_id": latest_session.get("topicId")
+                "all_sessions": results,
+                "highest": highest_session,
+                "overall_usage": highest_usage,
+                "needs_summary": highest_usage >= self.config["context_threshold"]
             }
 
         except Exception as e:
             self.logger.error(f"检查上下文失败: {e}")
             return None
+
+    # ==================== Claude Code / OpenCode 监测 ====================
+
+    def check_all_cc_context(self) -> List[Dict]:
+        """
+        检查所有 Coding Agents 的上下文使用率
+
+        Returns:
+            List[Dict]: 各 CC 的使用率信息列表
+        """
+        results = []
+
+        # 检查 Claude Code
+        cc_result = self._check_claude_code_usage()
+        if cc_result:
+            results.append(cc_result)
+
+        # 检查 OpenCode
+        oc_result = self._check_opencode_usage()
+        if oc_result:
+            results.append(oc_result)
+
+        return results
+
+    def _check_claude_code_usage(self) -> Optional[Dict]:
+        """
+        检查 Claude Code 上下文使用率
+
+        Returns:
+            Dict: {name, usage_percent, needs_summary, session_id}
+        """
+        try:
+            # 方法1: 检查 Claude Code 配置文件
+            settings_file = Path.home() / ".claude" / "settings.json"
+            if settings_file.exists():
+                with open(settings_file, 'r') as f:
+                    settings = json.load(f)
+
+                # Claude Code 没有直接的使用率，通过会话估算
+                # 检查最近活动时间
+                last_activity = settings.get("lastActivity")
+                sessions_dir = Path.home() / ".claude" / "sessions"
+
+                if sessions_dir.exists():
+                    session_files = list(sessions_dir.glob("*.json"))
+                    # 估算：每会话约 10000 tokens
+                    estimated_tokens = len(session_files) * 10000
+                    max_tokens = 200000
+                    usage_percent = min(100, (estimated_tokens / max_tokens) * 100)
+
+                    return {
+                        "name": "Claude Code",
+                        "usage_percent": usage_percent,
+                        "needs_summary": usage_percent >= self.config["context_threshold"],
+                        "session_id": session_files[0].stem if session_files else "",
+                        "sessions_count": len(session_files),
+                        "source": "claude-code"
+                    }
+
+        except Exception as e:
+            self.logger.debug(f"Claude Code 检查失败: {e}")
+
+        return None
+
+    def _check_opencode_usage(self) -> Optional[Dict]:
+        """
+        检查 OpenCode 上下文使用率
+
+        Returns:
+            Dict: {name, usage_percent, needs_summary, session_id}
+        """
+        try:
+            # 检查 OpenCode 配置
+            opencode_dir = Path.home() / ".opencode"
+
+            if opencode_dir.exists():
+                # 检查会话目录
+                sessions_dir = opencode_dir / "sessions"
+                if sessions_dir.exists():
+                    session_files = list(sessions_dir.glob("*.json"))
+                    # 估算：每会话约 8000 tokens
+                    estimated_tokens = len(session_files) * 8000
+                    max_tokens = 200000
+                    usage_percent = min(100, (estimated_tokens / max_tokens) * 100)
+
+                    return {
+                        "name": "OpenCode",
+                        "usage_percent": usage_percent,
+                        "needs_summary": usage_percent >= self.config["context_threshold"],
+                        "session_id": session_files[0].stem if session_files else "",
+                        "sessions_count": len(session_files),
+                        "source": "opencode"
+                    }
+
+        except Exception as e:
+            self.logger.debug(f"OpenCode 检查失败: {e}")
+
+        return None
+
+    def handle_cc_over_threshold(self, cc_info: Dict):
+        """
+        处理 CC 超过阈值的情况
+
+        Args:
+            cc_info: CC 信息
+        """
+        name = cc_info.get("name", "Unknown")
+        usage = cc_info.get("usage_percent", 0)
+
+        self.logger.warning(f"{name} 上下文使用率 ({usage:.1f}%) 超过阈值!")
+
+        # 发送 Feed 通知
+        self.notify_feed(
+            f"⚠️ {name} 上下文使用率达 {usage:.1f}%，已触发摘要切换",
+            topic_id=466
+        )
+
+        # 记录状态
+        if "cc_over_threshold" not in self.state:
+            self.state["cc_over_threshold"] = []
+
+        self.state["cc_over_threshold"].append({
+            "name": name,
+            "usage_percent": usage,
+            "timestamp": datetime.now().isoformat()
+        })
+        self._save_state()
 
     def trigger_summary(self, session_info: Dict) -> bool:
         """
@@ -200,9 +341,10 @@ class ASMMonitor:
             import subprocess
             result = subprocess.run(
                 [sys.executable, str(session_script),
-                 "--action", "create",
-                 "--topic-id", str(session_info.get("topic_id", "")),
-                 "--from-session", session_info.get("session_id", "")],
+                 "--create",
+                 "--topic", str(session_info.get("topic_id", "")),
+                 "--parent", session_info.get("session_id", ""),
+                 "--json"],
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -231,7 +373,7 @@ class ASMMonitor:
         try:
             start = time.time()
             result = subprocess.run(
-                [str(Path.home() / ".local" / "bin" / "openclaw"), "status"],
+                [str("/usr/bin/openclaw"), "status"],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -240,7 +382,11 @@ class ASMMonitor:
 
             output = result.stdout + result.stderr
 
-            if "Gateway: reachable" in output or "Gateway: ok" in output.lower():
+            # 检查 Gateway 状态（兼容不同输出格式）
+            # 格式1: "Gateway: reachable" 或 "Gateway: ok"
+            # 格式2: "reachable Xms" (openclaw status 输出格式)
+            if ("Gateway: reachable" in output or "Gateway: ok" in output.lower() or
+                "reachable" in output.lower()):
                 return {
                     "status": "healthy",
                     "response_time": response_time,
@@ -299,7 +445,7 @@ class ASMMonitor:
         try:
             # 停止 gateway
             subprocess.run(
-                [str(Path.home() / ".local" / "bin" / "openclaw"), "gateway", "stop"],
+                [str("/usr/bin/openclaw"), "gateway", "stop"],
                 capture_output=True,
                 timeout=10
             )
@@ -307,7 +453,7 @@ class ASMMonitor:
 
             # 启动 gateway
             result = subprocess.run(
-                [str(Path.home() / ".local" / "bin" / "openclaw"), "gateway", "start"],
+                [str("/usr/bin/openclaw"), "gateway", "start"],
                 capture_output=True,
                 timeout=30
             )
@@ -346,9 +492,10 @@ class ASMMonitor:
 
         try:
             result = subprocess.run(
-                [str(Path.home() / ".local" / "bin" / "openclaw"), "message", "send",
+                ["/usr/bin/openclaw", "message", "send",
                  "--channel", "telegram",
-                 "--target", str(topic_id),
+                 "--target", "-1003856805564",
+                 "--thread-id", str(topic_id),
                  "--message", f"[ASM] {message}"],
                 capture_output=True,
                 text=True,
@@ -383,7 +530,7 @@ class ASMMonitor:
                 config = json.load(f)
 
             # 获取 MiniMax 配置和预估使用量
-            minimax_config = config.get("models", {}).get("anthropic", {})
+            minimax_config = config.get("models", {}).get("minimax", {})
 
             # 尝试从日志估算使用量
             log_dir = Path.home() / ".openclaw"
@@ -442,23 +589,55 @@ class ASMMonitor:
         results = {
             "timestamp": datetime.now().isoformat(),
             "context": None,
+            "cc_contexts": [],  # Claude Code / OpenCode
             "gateway": None,
             "minimax": None
         }
 
-        # 1. 检查上下文
+        # 1. 检查 OpenClaw 上下文
         context_info = self.check_context_usage()
         results["context"] = context_info
-        if context_info:
-            self.logger.info(f"上下文使用率: {context_info['usage_percent']:.1f}%")
+
+        if context_info and context_info.get("all_sessions"):
+            # 打印所有会话状态
+            for session in context_info["all_sessions"]:
+                self.logger.info(
+                    f"会话 {session['session_key'][-8:]}: "
+                    f"{session['usage_percent']:.1f}% ({session['total_tokens']} tokens)"
+                )
+
+            # 最高使用率的会话
+            highest = context_info["highest"]
+            self.logger.info(f"最高使用率: {highest['session_key']} - {highest['usage_percent']:.1f}%")
 
             if context_info["needs_summary"]:
                 self.logger.info("触发上下文摘要...")
-                if self.trigger_summary(context_info):
+                # 使用最高使用率的会话信息
+                context_for_summary = {
+                    "session_id": highest.get("session_key", ""),
+                    "topic_id": highest.get("topic_id", ""),
+                    "usage_percent": highest.get("usage_percent", 0)
+                }
+                if self.trigger_summary(context_for_summary):
                     self.logger.info("创建新会话...")
-                    self.create_new_session(context_info)
+                    self.create_new_session(context_for_summary)
+                    # 摘要切换后通知 feed
+                    self.notify_feed(
+                        f"OpenClaw 上下文使用率达 {highest['usage_percent']:.1f}%，已切换新会话",
+                        topic_id=466
+                    )
 
-        # 2. 检查 Gateway
+        # 2. 检查 Claude Code / OpenCode 上下文
+        cc_results = self.check_all_cc_context()
+        results["cc_contexts"] = cc_results
+        for cc in cc_results:
+            self.logger.info(f"{cc['name']} 上下文使用率: {cc['usage_percent']:.1f}%")
+
+            if cc.get("needs_summary"):
+                self.logger.info(f"触发 {cc['name']} 摘要切换...")
+                self.handle_cc_over_threshold(cc)
+
+        # 3. 检查 Gateway
         gw_status = self.check_gateway_health()
         results["gateway"] = gw_status
         self.logger.info(f"Gateway 状态: {gw_status['status']} ({gw_status['response_time']:.0f}ms)")

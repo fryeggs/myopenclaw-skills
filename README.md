@@ -1,84 +1,40 @@
-# My OpenClaw Skills | 我的 OpenClaw 技能集合
+# OpenClaw Skills
 
-## English
+## English Description
 
-This repository contains OpenClaw skills developed by me for personal use.
+Collection of OpenClaw skills for autonomous AI assistant operations.
 
-### Skills | 技能
+## 中文说明
 
-| Skill | Description |
-|-------|-------------|
-| [gateway-monitor](./gateway-monitor/) | Monitor OpenClaw Gateway health and auto-restart on crash. Claude rescue protocol included. |
-| [openclaw-memory-skill](./openclaw-memory-skill/) | Daily monitoring of win4r/claude-code-clawdbot-skill and local memory sync to GitHub at 2 AM. User notification at 8 AM. |
-| [github-find-context7](./github-find-context7/) | GitHub operations (search, create, analyze) + Context7 documentation lookup for any library. |
+OpenClaw 技能的集合，用于 AI 自主助手操作。
 
-### Auto-Sync
+## Skills / 技能列表
 
-All skills are automatically synced to this repository daily at 2 AM.
+| Skill / 技能 | Description / 描述 |
+|-------------|-------------------|
+| [auto-session-manager](auto-session-manager/) | Auto-manage OpenClaw session lifecycle / 自动管理 OpenClaw 会话生命周期 |
+| [claude-code-openclaw](claude-code-openclaw/) | Claude Code CLI wrapper for OpenClaw / OpenClaw 的 Claude Code CLI 封装 |
+| [data-organizer](data-organizer/) | File organization and content extraction / 文件组织和内容提取 |
+| [github-find-context7](github-find-context7/) | GitHub search and documentation lookup / GitHub 搜索和文档查询 |
+| [memory-consolidator](memory-consolidator/) | Memory file merging and summarization / 记忆文件合并和摘要 |
+| [rag_to_qdrant](rag_to_qdrant/) | Directory monitoring to vector database / 目录监控到向量数据库 |
+| [reddit-ai-feeds-skill](reddit-ai-feeds-skill/) | Reddit AI news feeds / Reddit AI 资讯订阅 |
+| [web-content-learner](web-content-learner/) | Web content extraction and video transcription / 网页内容提取和视频转录 |
 
-### Usage
+## Documentation Structure / 文档结构
 
-```bash
-/use gateway-monitor check
-/use openclaw-memory-skill check
-/use github-find-context7 find react
-```
+Each skill contains / 每个技能包含：
+- **README.md**: Bilingual documentation (English + Chinese) / 中英双语文档
+- **SKILL.md**: Full English OpenClaw standard documentation / 全英文 OpenClaw 标准文档
+- **scripts/**: Python/bash scripts / Python/Bash 脚本
+- **references/**: Additional documentation / 附加文档
 
----
+## Installation / 安装
 
-## 中文
+Skills are automatically installed in `~/.openclaw/skills/` by OpenClaw.
 
-这个仓库包含我为个人使用开发的 OpenClaw 技能。
+技能由 OpenClaw 自动安装到 `~/.openclaw/skills/` 目录。
 
-### 技能
+## License / 许可证
 
-| 技能 | 描述 |
-|------|------|
-| [gateway-monitor](./gateway-monitor/) | 监控 OpenClaw Gateway 状态，崩溃时自动重启。包含 Claude 救援协议。 |
-| [openclaw-memory-skill](./openclaw-memory-skill/) | 每天凌晨 2 点监控 win4r 项目更新并同步本地内存到 GitHub。早上 8 点通知用户。 |
-| [github-find-context7](./github-find-context7/) | GitHub 操作（搜索、创建、分析）+ Context7 文档查询（任意库的官方文档）。 |
-
-### 自动同步
-
-所有技能每天凌晨 2 点自动同步到此仓库。
-
-### 使用方法
-
-```bash
-/use gateway-monitor check
-/use openclaw-memory-skill check
-/use github-find-context7 find react
-```
-
----
-
-## Skills Details | 技能详情
-
-### gateway-monitor
-
-Monitor OpenClaw Gateway health with auto-recovery. Includes:
-- Process monitoring
-- HTTP health checks
-- Auto-restart on failure
-- Claude rescue protocol
-
-### openclaw-memory-skill
-
-Daily sync workflow:
-1. 2 AM: Check win4r project updates
-2. 2 AM: Check local MEMORY.md changes
-3. 2 AM: Merge and sync to GitHub
-4. 8 AM: Notify user about updates
-
-### github-find-context7
-
-Integrated GitHub operations:
-- Search repositories, code, issues, users
-- Create repos, issues, PRs
-- Repository health analysis
-- Context7 documentation lookup
-- Deployment guides
-
----
-
-**Repository**: [fryeggs/myopenclaw-skills](https://github.com/fryeggs/myopenclaw-skills)
+MIT

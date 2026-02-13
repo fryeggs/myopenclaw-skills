@@ -10,7 +10,7 @@ Fetch and summarize posts from top AI-related subreddits via RSS feeds with Chin
 ## Quick Start
 
 ```bash
-cd ~/reddit-ai-feeds-skill
+cd ~/.openclaw/skills/reddit-ai-feeds-skill
 python3 scripts/fetch_reddit.py --limit 10
 ```
 
@@ -27,12 +27,15 @@ python3 scripts/fetch_reddit.py --limit 10
 
 ```bash
 # Default: hot posts from all AI subs
+cd ~/.openclaw/skills/reddit-ai-feeds-skill
 python3 scripts/fetch_reddit.py --limit 10
 
 # Specific subreddits only
+cd ~/.openclaw/skills/reddit-ai-feeds-skill
 python3 scripts/fetch_reddit.py --subreddits LocalLLaMA,ClaudeAI --limit 5
 
 # New posts from specific subs
+cd ~/.openclaw/skills/reddit-ai-feeds-skill
 python3 scripts/fetch_reddit.py --sort new --subreddits OpenAI,ChatGPT --limit 5
 ```
 

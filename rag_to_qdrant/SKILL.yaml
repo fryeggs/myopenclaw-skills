@@ -1,0 +1,46 @@
+---
+name: rag_to_qdrant
+description: "监控目录变化，自动向量化并存入 Qdrant，支持 Telegram RAG 检索"
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      bins: ["python3"]
+      services:
+        - "ollama (localhost:11434)"
+        - "qdrant (localhost:6333)"
+    triggers:
+      - "cron:0 */2 * * *"  # 每 2 小时执行
+    source:
+      - "/media/qingshan/D/jxh_data/*.md"
+      - "/media/qingshan/D/jxh_data/*.txt"
+      - "/media/qingshan/D/jxh_data/*.json"
+    output:
+      - "qdrant://localhost:6333/collections/jxh_data_rag"
+---
+
+# RAG to Qdrant Skill
+
+## 功能
+
+1. **目录监控**: 监控 /media/qingshan/D/jxh_data 目录变化
+2. **向量化**: 调用 Ollama BGE-M3 生成 1024 维向量
+3. **存储**: 存入 Qdrant (localhost:6333)
+4. **检索**: 支持语义检索查询
+
+## 使用
+
+```bash
+# 全量导入
+python scripts/main.py --watch-dir /media/qingshan/D/jxh_data --mode full
+
+# 增量监控
+python scripts/main.py --watch-dir /media/qingshan/D/jxh_data --mode incremental
+```
+
+## 定时任务
+
+每 2 小时自动执行增量监控：
+```
+0 */2 * * * /home/qingshan/.openclaw/skills/rag_to_qdrant/scripts/run_cron.sh
+```

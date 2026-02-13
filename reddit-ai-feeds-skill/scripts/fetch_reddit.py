@@ -253,7 +253,11 @@ def parse_rss(xml_content: str, subreddit: str) -> List[Dict]:
 def fetch_subreddit_rss(subreddit: str, sort: str = "hot", limit: int = 10) -> List[Dict]:
     """Fetch posts from subreddit RSS feed."""
     url = f"https://www.reddit.com/r/{subreddit}/{sort}.rss?limit={limit}"
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; RSS Reader; +https://github.com/openclaw)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     
     try:
         req = urllib.request.Request(url, headers=headers)
@@ -281,11 +285,11 @@ def format_time_ago(iso_time: str) -> str:
 
 
 def format_output(posts: List[Dict]) -> str:
-    """Format posts with Chinese summaries."""
+    """Format posts with Chinese summaries. Limited to 3000 chars for Telegram."""
     if not posts:
         return "❌ 未找到相关帖子"
     
-    lines = [f"📊 **Reddit AI 社区热帖** (共 {len(posts)} 条)\n"]
+    lines = []
     for i, post in enumerate(posts, 1):
         title = post.get("title", "无标题")
         url = post.get("url", "")
@@ -299,25 +303,29 @@ def format_output(posts: List[Dict]) -> str:
         zh_title = translate_title(title)
         zh_summary = summarize_content(title, content)
         
-        lines.append(f"**【{i}】{title}**")
+        lines.append(f"**【{i}】{title[:50]}**")
         lines.append(f"• 📌 {zh_title}")
         if keywords:
             lines.append(f"• {keywords}")
         time_str = f" · {time_ago}" if time_ago else ""
         lines.append(f"• {sub_desc}{time_str}")
-        lines.append(f"• 📝 {zh_summary}")
         short_url = url.replace("https://www.reddit.com", "https://reddit.com")
         lines.append(f"• 🔗 {short_url}\n")
     
-    return "\n".join(lines)
+    # 限制总长度
+    result = "\n".join(lines)
+    if len(result) > 3000:
+        result = result[:3000] + "\n...（内容过长已截断）"
+    
+    return f"📊 **Reddit AI 社区热帖** (共 {len(posts)} 条)\n\n{result}"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch Reddit AI posts via RSS")
     parser.add_argument("--sort", choices=["hot", "new", "top", "rising"], default="hot")
-    parser.add_argument("--limit", type=int, default=5, help="Posts per subreddit")
+    parser.add_argument("--limit", type=int, default=3, help="Posts per subreddit")
     parser.add_argument("--subreddits", type=str, default=None, help="Comma-separated list")
-    parser.add_argument("--total", type=int, default=20, help="Max total posts")
+    parser.add_argument("--total", type=int, default=10, help="Max total posts")
     args = parser.parse_args()
     
     subreddits = [s.strip() for s in args.subreddits.split(",")] if args.subreddits else DEFAULT_SUBREDDITS
