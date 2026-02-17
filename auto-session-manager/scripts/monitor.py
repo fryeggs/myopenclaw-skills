@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -35,11 +36,12 @@ MEMORY_DIR = STATE_DIR / ".session_memory"
 # 默认配置
 DEFAULT_CONFIG = {
     "context_threshold": 80,          # 上下文阈值 %
-    "gateway_timeout": 300,            # Gateway 超时秒（5分钟）
+    "gateway_timeout": 120,            # Gateway 超时秒（2分钟）
     "monitor_interval": 180,           # 监控间隔秒（3分钟，避免频繁）
     "minimax_quota_threshold": 100,   # MiniMax 额度告警阈值
     "restart_max_attempts": 3,        # 最大重启尝试次数
-    "restart_cooldown": 120,           # 重启冷却时间秒（2分钟）
+    "restart_cooldown": 120,          # 重启冷却时间秒（2分钟）
+    "summary_cooldown": 300,           # 摘要切换冷却时间秒（5分钟）
 }
 
 
@@ -60,6 +62,132 @@ class ASMMonitor:
 
         # 加载状态
         self.state = self._load_state()
+
+    def consolidate_memory(self):
+        """
+        记忆精简：合并所有 .md 存入 SQLite 数据库
+
+        执行顺序：先精简记忆 → 再清理会话（确保经验已保存）
+        """
+        import subprocess
+        import os
+
+        self.logger.info("开始记忆精简...")
+
+        # 设置环境变量
+        env = os.environ.copy()
+        env["ANTHROPIC_AUTH_TOKEN"] = "sk-cp-4V4V-d7e6ooc-WAN2U0uNTC2_nj9LRIoki3lZ_TVYgk0qH-w7knnCwrrqi0MnczBBIlg9q-S_kKn9MrEZiUcpRKSWj-OueKDsoCNHk7hk52oGdkNY_CMGiI"
+
+        try:
+            # 1. 运行 memory-consolidator
+            result = subprocess.run(
+                ["/usr/bin/python3", str(Path.home() / ".openclaw/skills/memory-consolidator/scripts/main.py")],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=env
+            )
+
+            if result.returncode == 0:
+                self.logger.info("记忆精简完成")
+            else:
+                self.logger.warning(f"记忆精简失败: {result.stderr}")
+
+            # 2. 运行 memory index
+            result2 = subprocess.run(
+                ["/usr/bin/openclaw", "memory", "index", "--force"],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if result2.returncode == 0:
+                self.logger.info("记忆索引完成")
+            else:
+                self.logger.warning(f"记忆索引失败: {result2.stderr}")
+
+        except subprocess.TimeoutExpired:
+            self.logger.error("记忆精简超时")
+        except Exception as e:
+            self.logger.error(f"记忆精简异常: {e}")
+
+    def cleanup_old_sessions(self, days: int = 3):
+        """
+        清理旧会话文件（.jsonl + sessions.json）
+
+        Args:
+            days: 保留天数，默认3天
+        """
+        import subprocess
+        import json
+        from datetime import datetime, timedelta
+
+        sessions_dir = Path.home() / ".openclaw" / "agents" / "main" / "sessions"
+        sessions_file = sessions_dir / "sessions.json"
+
+        if not sessions_dir.exists():
+            return
+
+        try:
+            # 1. 清理 .jsonl 文件
+            subprocess.run(
+                ["find", str(sessions_dir), "-name", "*.jsonl", "-mtime", f"+{days}", "-type", "f", "-delete"],
+                capture_output=True,
+                text=True
+            )
+            self.logger.info(f"已清理 {days} 天前的会话文件")
+
+            # 2. 清理 Claude Code 历史记录
+            claude_history = Path.home() / ".claude" / "history.jsonl"
+            if claude_history.exists():
+                try:
+                    with open(claude_history, 'r') as f:
+                        lines = f.readlines()
+
+                    three_days_ago = (datetime.now() - timedelta(days=days)).timestamp() * 1000
+                    kept_lines = []
+
+                    for line in lines:
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                timestamp = data.get('timestamp', 0)
+                                if timestamp >= three_days_ago:
+                                    kept_lines.append(line)
+                            except:
+                                pass
+
+                    with open(claude_history, 'w') as f:
+                        f.writelines(kept_lines)
+
+                    self.logger.info(f"Claude Code 历史记录: {len(lines)} → {len(kept_lines)}")
+                except Exception as e:
+                    self.logger.error(f"清理 Claude Code 历史失败: {e}")
+
+            # 3. 清理 sessions.json 中的旧记录
+            if sessions_file.exists():
+                with open(sessions_file, 'r') as f:
+                    data = json.load(f)
+
+                three_days_ago = (datetime.now() - timedelta(days=days)).timestamp() * 1000
+
+                # 筛选保留的会话
+                to_delete = []
+                for key in data.keys():
+                    info = data[key]
+                    updated = info.get('updatedAt', 0)
+                    if updated < three_days_ago and updated > 0:
+                        to_delete.append(key)
+
+                if to_delete:
+                    for key in to_delete:
+                        del data[key]
+                    with open(sessions_file, 'w') as f:
+                        json.dump(data, f, indent=2)
+                    self.logger.info(f"已清理 sessions.json 中 {len(to_delete)} 个旧会话记录")
+
+        except Exception as e:
+            self.logger.error(f"清理会话文件失败: {e}")
 
     def _init_logging(self):
         """初始化日志配置"""
@@ -97,6 +225,15 @@ class ASMMonitor:
         with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
 
+    def _validate_topic(self, topic_id: str) -> bool:
+        """验证 topic 是否存在（使用白名单，不过发消息）"""
+        if not topic_id or not topic_id.isdigit():
+            return False
+        
+        # 已知有效的 topic 白名单
+        valid_topics = {"464", "465", "1186", "1816"}
+        return topic_id in valid_topics
+
     def check_context_usage(self) -> Optional[Dict]:
         """
         检查当前 OpenClaw 所有会话的上下文使用率
@@ -121,6 +258,16 @@ class ASMMonitor:
             # sessions.json 格式是字典: {session_key: session_data}
             for key, session_data in sessions.items():
                 if 'agent:main' not in key:
+                    continue
+
+                # 提取 topic
+                topic_id = ""
+                if 'topic' in key:
+                    topic_id = key.split('topic:')[-1] if 'topic:' in key else ""
+
+                # 跳过不存在的 topic
+                if topic_id and not self._validate_topic(topic_id):
+                    self.logger.warning(f"Topic {topic_id} 不存在，跳过")
                     continue
 
                 total_tokens = session_data.get('totalTokens', 0)
@@ -199,9 +346,27 @@ class ASMMonitor:
                 last_activity = settings.get("lastActivity")
                 sessions_dir = Path.home() / ".claude" / "sessions"
 
-                if sessions_dir.exists():
+                # 方法2: 通过 history.jsonl 大小更准确估算
+                history_file = Path.home() / ".claude" / "history.jsonl"
+                if history_file.exists():
+                    size = history_file.stat().st_size
+                    # 约 4 bytes per token
+                    estimated_tokens = size // 4
+                    max_tokens = 200000
+                    usage_percent = min(100, (estimated_tokens / max_tokens) * 100)
+                    
+                    return {
+                        "name": "Claude Code",
+                        "usage_percent": usage_percent,
+                        "needs_summary": usage_percent >= self.config["context_threshold"],
+                        "session_id": session_files[0].stem if session_files else "",
+                        "sessions_count": len(session_files),
+                        "source": "history.jsonl",
+                        "history_size_kb": size // 1024
+                    }
+                elif sessions_dir.exists():
                     session_files = list(sessions_dir.glob("*.json"))
-                    # 估算：每会话约 10000 tokens
+                    # 备用：每会话约 10000 tokens
                     estimated_tokens = len(session_files) * 10000
                     max_tokens = 200000
                     usage_percent = min(100, (estimated_tokens / max_tokens) * 100)
@@ -270,7 +435,7 @@ class ASMMonitor:
         # 发送 Feed 通知
         self.notify_feed(
             f"⚠️ {name} 上下文使用率达 {usage:.1f}%，已触发摘要切换",
-            topic_id=466
+            topic_id=1816
         )
 
         # 记录状态
@@ -327,7 +492,7 @@ class ASMMonitor:
 
     def create_new_session(self, session_info: Dict) -> Optional[Dict]:
         """
-        创建新会话并继承上下文
+        创建新会话并继承上下文，然后切换到新会话
 
         Args:
             session_info: 原会话信息
@@ -339,6 +504,7 @@ class ASMMonitor:
 
         try:
             import subprocess
+            # 1. 创建新会话
             result = subprocess.run(
                 [sys.executable, str(session_script),
                  "--create",
@@ -351,8 +517,26 @@ class ASMMonitor:
             )
 
             if result.returncode == 0:
-                self.logger.info(f"新会话创建成功")
-                return json.loads(result.stdout)
+                new_session = json.loads(result.stdout)
+                new_session_id = new_session.get("session_id", "")
+                self.logger.info(f"新会话创建成功: {new_session_id}")
+                
+                # 2. 切换到新会话
+                if new_session_id:
+                    switch_result = subprocess.run(
+                        [sys.executable, str(session_script),
+                         "--switch", new_session_id,
+                         "--json"],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if switch_result.returncode == 0:
+                        self.logger.info(f"已切换到新会话: {new_session_id}")
+                    else:
+                        self.logger.warning(f"切换会话失败: {switch_result.stderr}")
+                
+                return new_session
             else:
                 self.logger.error(f"创建会话失败: {result.stderr}")
                 return None
@@ -424,6 +608,57 @@ class ASMMonitor:
                 "message": str(e)
             }
 
+    def check_dingtalk_health(self) -> Dict:
+        """
+        检查钉钉频道状态
+
+        Returns:
+            Dict: {status, message}
+        """
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                [str("/usr/bin/openclaw"), "status"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            output = result.stdout + result.stderr
+
+            # 检查钉钉状态
+            if "dingtalk" in output.lower():
+                # 解析钉钉状态
+                if "dingtalk" in output.lower() and "ok" in output.lower():
+                    return {
+                        "status": "healthy",
+                        "message": "钉钉正常"
+                    }
+                elif "dingtalk" in output.lower():
+                    # 提取钉钉相关行
+                    lines = [l for l in output.split('\n') if 'dingtalk' in l.lower()]
+                    if lines:
+                        return {
+                            "status": "warning",
+                            "message": lines[0][:100]
+                        }
+                    return {
+                        "status": "unknown",
+                        "message": "钉钉状态未知"
+                    }
+
+            return {
+                "status": "not_configured",
+                "message": "未配置钉钉"
+            }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
     def restart_gateway(self) -> bool:
         """
         尝试重启 Gateway 服务
@@ -477,13 +712,13 @@ class ASMMonitor:
             self.restart_attempts += 1
             return False
 
-    def notify_feed(self, message: str, topic_id: int = 466) -> bool:
+    def notify_feed(self, message: str, topic_id: int = 1816) -> bool:
         """
         发送通知到 feed topic
 
         Args:
             message: 通知内容
-            topic_id: feed topic ID (默认 466)
+            topic_id: feed topic ID (默认 1816)
 
         Returns:
             bool: 是否发送成功
@@ -565,7 +800,7 @@ class ASMMonitor:
         # 发送紧急通知
         self.notify_feed(
             "⚠️ Gateway 连续重启失败，需要人工介入！请检查服务状态。",
-            topic_id=466
+            topic_id=1816
         )
 
         # 生成修复报告
@@ -586,11 +821,24 @@ class ASMMonitor:
         """执行单次检查"""
         self.logger.info("=== 执行单次健康检查 ===")
 
+        # 每小时清理一次旧会话（60秒 * 60 = 3600秒，这里用检查次数计数）
+        check_count = self.state.get("check_count", 0) + 1
+        self.state["check_count"] = check_count
+
+        # 每20次检查（约1小时，180秒*20=3600秒）执行记忆精简和清理
+        if check_count % 20 == 0:
+            # 1. 先运行记忆精简（存入数据库）
+            self.consolidate_memory()
+
+            # 2. 再清理会话记录（确保经验已保存）
+            self.cleanup_old_sessions(days=3)
+
         results = {
             "timestamp": datetime.now().isoformat(),
             "context": None,
             "cc_contexts": [],  # Claude Code / OpenCode
             "gateway": None,
+            "dingtalk": None,
             "minimax": None
         }
 
@@ -611,21 +859,35 @@ class ASMMonitor:
             self.logger.info(f"最高使用率: {highest['session_key']} - {highest['usage_percent']:.1f}%")
 
             if context_info["needs_summary"]:
-                self.logger.info("触发上下文摘要...")
-                # 使用最高使用率的会话信息
-                context_for_summary = {
-                    "session_id": highest.get("session_key", ""),
-                    "topic_id": highest.get("topic_id", ""),
-                    "usage_percent": highest.get("usage_percent", 0)
-                }
-                if self.trigger_summary(context_for_summary):
-                    self.logger.info("创建新会话...")
-                    self.create_new_session(context_for_summary)
-                    # 摘要切换后通知 feed
-                    self.notify_feed(
-                        f"OpenClaw 上下文使用率达 {highest['usage_percent']:.1f}%，已切换新会话",
-                        topic_id=466
-                    )
+                # 每次检查时重新加载 state，确保获取最新状态
+                self.state = self._load_state()
+                
+                # 检查该会话是否已处理过（防止重复触发）
+                if highest["session_key"] in self.state.get("sessions_processed", []):
+                    self.logger.info(f"会话 {highest['session_key'][-8:]} 已处理过，跳过")
+                else:
+                    # 添加到已处理列表
+                    self.state.setdefault("sessions_processed", []).append(highest["session_key"])
+                    self._save_state()
+                    
+                    self.logger.info("触发上下文摘要...")
+                    # 记录摘要触发时间
+                    self.state["last_summary_time"] = datetime.now().isoformat()
+                    self._save_state()
+                    # 使用最高使用率的会话信息
+                    context_for_summary = {
+                        "session_id": highest.get("session_key", ""),
+                        "topic_id": highest.get("topic_id", ""),
+                        "usage_percent": highest.get("usage_percent", 0)
+                    }
+                    if self.trigger_summary(context_for_summary):
+                        self.logger.info("创建新会话...")
+                        self.create_new_session(context_for_summary)
+                        # 摘要切换后通知 feed
+                        self.notify_feed(
+                            f"OpenClaw 上下文使用率达 {highest['usage_percent']:.1f}%，已切换新会话",
+                            topic_id=1816
+                        )
 
         # 2. 检查 Claude Code / OpenCode 上下文
         cc_results = self.check_all_cc_context()
@@ -655,14 +917,33 @@ class ASMMonitor:
         else:
             self.state["gateway_downtime_start"] = None
 
-        # 3. 检查 MiniMax 额度
+        # 4. 检查钉钉频道
+        dt_status = self.check_dingtalk_health()
+        results["dingtalk"] = dt_status
+        self.logger.info(f"钉钉状态: {dt_status['status']} - {dt_status['message']}")
+
+        # 钉钉不健康时重启 Gateway
+        if dt_status["status"] not in ["healthy", "not_configured"]:
+            if self.state.get("dingtalk_downtime_start") is None:
+                self.state["dingtalk_downtime_start"] = datetime.now().isoformat()
+
+            downtime = datetime.now() - datetime.fromisoformat(self.state["dingtalk_downtime_start"])
+            if downtime.total_seconds() > 120:  # 钉钉离线超过2分钟重启
+                self.logger.warning("钉钉离线超时，尝试重启 Gateway...")
+                if self.restart_gateway():
+                    self.state["dingtalk_downtime_start"] = None
+                    self.notify_feed("钉钉离线，重启 Gateway 已恢复", topic_id=1816)
+        else:
+            self.state["dingtalk_downtime_start"] = None
+
+        # 5. 检查 MiniMax 额度
         quota = self.check_minimax_quota()
         results["minimax"] = quota
         self.logger.info(f"MiniMax 额度状态: {quota['status']}")
 
         if quota["threshold_reached"] and not self.state.get("minimax_quota_low"):
             self.state["minimax_quota_low"] = True
-            self.notify_feed("MiniMax API 额度不足，已暂停工作", topic_id=466)
+            self.notify_feed("MiniMax API 额度不足，已暂停工作", topic_id=1816)
         elif not quota["threshold_reached"]:
             self.state["minimax_quota_low"] = False
 

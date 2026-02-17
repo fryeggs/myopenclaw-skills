@@ -167,6 +167,35 @@ def extract_image_info(file_path: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def extract_image_content(file_path: str) -> str:
+    """使用 PaddleOCR 提取图片中的文字"""
+    if PaddleOCR is None:
+        return "[需要安装 paddleocr]"
+
+    try:
+        print(f"[FILE_HANDLER] 使用 PaddleOCR 识别图片: {Path(file_path).name}")
+        ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
+
+        result = ocr.ocr(file_path, cls=True)
+
+        if result and result[0]:
+            lines = []
+            for line in result[0]:
+                if line and len(line) >= 2:
+                    text = line[1][0]
+                    confidence = line[1][1]
+                    lines.append(text)
+            if lines:
+                print(f"[FILE_HANDLER] OCR 识别到 {len(lines)} 行文字")
+                return '\n'.join(lines)
+
+        return "[图片无文字内容]"
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"[图片 OCR 错误: {str(e)}]"
+
+
 def extract_text_content(file_path: str) -> str:
     """提取文本文件内容"""
     for enc in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
@@ -194,7 +223,7 @@ def process_file(file_path: str) -> Dict[str, Any]:
     elif file_type == 'json':
         content = extract_json_content(file_path)
     elif file_type == 'image':
-        content = ""
+        content = extract_image_content(file_path)
         metadata['image_info'] = extract_image_info(file_path)
     else:
         content = extract_text_content(file_path)

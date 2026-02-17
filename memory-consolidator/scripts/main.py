@@ -195,16 +195,16 @@ class MemoryConsolidator:
             self.logger.debug(f"API 响应: {str(result)[:500]}")
 
             # 兼容不同 API 响应格式
-            # 1. MiniMax 格式: content[0].thinking
+            # 1. MiniMax 格式: content[].text (最终答案)
             if "content" in result and isinstance(result["content"], list) and len(result["content"]) > 0:
-                content_item = result["content"][0]
-                if isinstance(content_item, dict):
-                    # MiniMax 返回 thinking
-                    if "thinking" in content_item:
-                        return content_item["thinking"]
-                    # Anthropic 返回 text
-                    if "text" in content_item:
-                        return content_item["text"]
+                for content_item in result["content"]:
+                    if isinstance(content_item, dict):
+                        # 优先找 text 类型（最终答案），其次才是 thinking
+                        if content_item.get("type") == "text":
+                            return content_item.get("text", str(result))
+                        # 备用：只有 thinking 没有 text
+                        if "thinking" in content_item and len(result["content"]) == 1:
+                            return content_item["thinking"]
             
             # 2. OpenAI 兼容格式: choices[0].message.content
             if "choices" in result and isinstance(result["choices"], list) and len(result["choices"]) > 0:
@@ -292,6 +292,9 @@ class MemoryConsolidator:
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(content)
 
+        # 自动提取热记忆（前50行）
+        self._extract_hot_memory(content)
+
         # 保存元数据
         meta = {
             'last_run': datetime.now().isoformat(),
@@ -302,6 +305,20 @@ class MemoryConsolidator:
             f.write(json.dumps(meta, indent=2))
 
         self.logger.info(f"输出已保存: {output_file}")
+
+    def _extract_hot_memory(self, content: str):
+        """从 consolidated.md 自动提取前 50 行作为热记忆"""
+        lines = content.split('\n')[:50]
+        hot_content = '\n'.join(lines)
+
+        # 保存到 ~/.openclaw/hot-memory/hot.md（全局热记忆）
+        hot_dir = Path.home() / '.openclaw' / 'hot-memory'
+        hot_dir.mkdir(parents=True, exist_ok=True)
+        hot_file = hot_dir / 'hot.md'
+        with open(hot_file, 'w', encoding='utf-8') as f:
+            f.write(hot_content)
+
+        self.logger.info(f"热记忆已更新: {hot_file}")
 
     def run(self):
         """执行完整流程"""

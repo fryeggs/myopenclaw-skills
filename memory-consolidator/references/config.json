@@ -1,10 +1,14 @@
 {
   "sources": [
     "~/.claude/CLAUDE.md",
-    "~/.openclaw/MEMORY.md",
-    "~/.openclaw/workspace/memory/*.md"
+    "~/.openclaw/workspace/MEMORY.md",
+    "~/.openclaw/workspace/memory/*.md",
+    "~/.openclaw/workspace/memory/identity.md",
+    "~/.openclaw/workspace/memory/bot-ops.md",
+    "~/.openclaw/workspace/memory/dev-pipeline.md",
+    "~/.openclaw/workspace/memory/limits.md"
   ],
-  "output_dir": "~/.openclaw/qmd_memory",
+  "output_dir": "/home/qingshan/.openclaw/qmd_memory",
   "cron_interval_minutes": 50,
   "model": "minimax/MiniMax-M2.1",
   "api_base_url": "https://api.minimaxi.com/anthropic",
@@ -12,7 +16,7 @@
   "deduplication_threshold": 0.85,
   "max_content_length": 50000,
   "enable_logging": true,
-  "log_dir": "~/.openclaw/qmd_memory/logs",
+  "log_dir": "/home/qingshan/.openclaw/qmd_memory/logs",
   "require_api_key": true,
-  "env_file": "~/.claude/.env"
+  "env_file": "/home/qingshan/.claude/.env"
 }
