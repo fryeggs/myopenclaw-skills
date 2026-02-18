@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_CLAUDE = os.environ.get("CLAUDE_CODE_BIN", "/home/ubuntu/.local/bin/claude")
+DEFAULT_CLAUDE = os.environ.get("CLAUDE_CODE_BIN", "/home/qingshan/.local/bin/claude")
 
 
 def which(name: str) -> str | None:

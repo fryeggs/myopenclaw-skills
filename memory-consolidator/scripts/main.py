@@ -79,8 +79,13 @@ class MemoryConsolidator:
             return hashlib.md5(f.read()).hexdigest()
 
     def get_source_files(self) -> List[Dict]:
-        """获取源文件列表"""
+        """获取源文件列表（只保留最近3天，去重）"""
+        import datetime
         sources = []
+        seen_paths = set()
+        three_days_ago = datetime.datetime.now() - datetime.timedelta(days=3)
+        core_files = ['MEMORY.md', 'CLAUDE.md', 'identity.md', 'bot-ops.md', 'dev-pipeline.md', 'limits.md']
+        
         for pattern in self.config['sources']:
             expanded = os.path.expanduser(pattern)
             
@@ -88,18 +93,28 @@ class MemoryConsolidator:
             if '*' in expanded:
                 matched = glob.glob(expanded)
                 for filepath in matched:
-                    if os.path.isfile(filepath):
-                        sources.append({
-                            'path': filepath,
-                            'hash': self.calculate_file_hash(filepath),
-                            'modified': os.path.getmtime(filepath)
-                        })
-            elif os.path.exists(expanded):
-                sources.append({
-                    'path': expanded,
-                    'hash': self.calculate_file_hash(expanded),
-                    'modified': os.path.getmtime(expanded)
-                })
+                    if os.path.isfile(filepath) and filepath not in seen_paths:
+                        mtime = os.path.getmtime(filepath)
+                        file_date = datetime.datetime.fromtimestamp(mtime)
+                        # 只保留最近3天的文件
+                        if file_date >= three_days_ago:
+                            sources.append({
+                                'path': filepath,
+                                'hash': self.calculate_file_hash(filepath),
+                                'modified': mtime
+                            })
+                            seen_paths.add(filepath)
+            elif os.path.exists(expanded) and expanded not in seen_paths:
+                mtime = os.path.getmtime(expanded)
+                file_date = datetime.datetime.fromtimestamp(mtime)
+                # 核心文件不受时间限制
+                if file_date >= three_days_ago or any(x in expanded for x in core_files):
+                    sources.append({
+                        'path': expanded,
+                        'hash': self.calculate_file_hash(expanded),
+                        'modified': mtime
+                    })
+                    seen_paths.add(expanded)
         return sources
 
     def check_for_changes(self, sources: List[Dict]) -> bool:
@@ -253,12 +268,15 @@ class MemoryConsolidator:
 
 {combined}
 
-请输出：
+**核心原则：合并多个记忆文件并去重，保留所有有价值的内容**
+
+请输出，务必不影响质量：
 1. 核心规则和原则
 2. 用户偏好和重要约定
 3. 待办事项
 4. 重要教训和经验
 5. 项目索引和知识库
+6. 关键步骤、逻辑、技巧等
 
 格式为清晰的 Markdown，保持结构和可读性。
 """
@@ -311,10 +329,8 @@ class MemoryConsolidator:
         lines = content.split('\n')[:50]
         hot_content = '\n'.join(lines)
 
-        # 保存到 ~/.openclaw/hot-memory/hot.md（全局热记忆）
-        hot_dir = Path.home() / '.openclaw' / 'hot-memory'
-        hot_dir.mkdir(parents=True, exist_ok=True)
-        hot_file = hot_dir / 'hot.md'
+        # 保存到 ~/.openclaw/qmd_memory/hot.md（热记忆）
+        hot_file = self.output_dir / 'hot.md'
         with open(hot_file, 'w', encoding='utf-8') as f:
             f.write(hot_content)
 
@@ -340,6 +356,18 @@ class MemoryConsolidator:
         # 3. 读取内容
         contents = self.read_source_files(sources)
         self.logger.info(f"读取了 {len(contents)} 个文件")
+
+        # 3.5 累积模式：将新内容追加到现有的 consolidated.md（不覆盖）
+        existing_consolidated = self.output_dir / 'consolidated.md'
+        if existing_consolidated.exists():
+            try:
+                with open(existing_consolidated, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+                # 追加到源文件末尾，作为额外参考
+                contents['[累积] 现有 consolidated.md'] = existing_content
+                self.logger.info("已加载现有 consolidated.md（累积模式：只增不减）")
+            except Exception as e:
+                self.logger.warning(f"读取现有 consolidated.md 失败: {e}")
 
         # 4. LLM 精简（MiniMax）
         consolidated = self.consolidate_with_llm(contents)
@@ -372,6 +400,25 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     consolidator.run()
+    
+    # 发送完成通知到 feed
+    notify_feed(f"Memory Consolidator 完成，增量合并 {consolidator增量内容}")
+
+
+def notify_feed(message: str):
+    """发送通知到 feed topic"""
+    import subprocess
+    try:
+        subprocess.run(
+            ["/usr/bin/openclaw", "message", "send",
+             "--channel", "telegram",
+             "--target", "-1003856805564",
+             "--thread-id", "1816",
+             "--message", f"📝 {message}"],
+            capture_output=True, timeout=10
+        )
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':

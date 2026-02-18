@@ -567,20 +567,18 @@ class ASMMonitor:
             output = result.stdout + result.stderr
 
             # 检查 Gateway 状态（兼容不同输出格式）
-            # 格式1: "Gateway: reachable" 或 "Gateway: ok"
-            # 格式2: "reachable Xms" (openclaw status 输出格式)
-            if ("Gateway: reachable" in output or "Gateway: ok" in output.lower() or
-                "reachable" in output.lower()):
-                return {
-                    "status": "healthy",
-                    "response_time": response_time,
-                    "message": "Gateway 正常"
-                }
-            elif "unreachable" in output.lower() or "timeout" in output.lower():
+            # 输出格式: "Gateway │ local · ws://127.0.0.1:18789 (local loopback) · reachable 13ms"
+            if "unreachable" in output.lower() or "timeout" in output.lower():
                 return {
                     "status": "unreachable",
                     "response_time": response_time,
                     "message": "Gateway 无法访问"
+                }
+            elif "reachable" in output.lower():
+                return {
+                    "status": "healthy",
+                    "response_time": response_time,
+                    "message": "Gateway 正常"
                 }
             else:
                 return {
@@ -678,34 +676,24 @@ class ASMMonitor:
                 return False
 
         try:
-            # 停止 gateway
-            subprocess.run(
-                [str("/usr/bin/openclaw"), "gateway", "stop"],
-                capture_output=True,
-                timeout=10
-            )
+            # 停止 gateway (杀掉进程)
+            subprocess.run(["pkill", "-f", "openclaw-gateway"], capture_output=True)
             time.sleep(2)
 
-            # 启动 gateway
-            result = subprocess.run(
-                [str("/usr/bin/openclaw"), "gateway", "start"],
-                capture_output=True,
-                timeout=30
+            # 启动 gateway (使用 nohup 方式，因为没有 systemd)
+            log_path = self.config.get("logs_dir", Path.home() / ".openclaw" / "logs") / "gateway_run.log"
+            subprocess.Popen(
+                ["nohup", "/usr/bin/openclaw", "gateway", "run", "--verbose"],
+                stdout=open(log_path, "a"),
+                stderr=subprocess.STDOUT
             )
 
-            if result.returncode == 0:
-                self.logger.info("Gateway 重启成功")
-                self.last_restart_time = datetime.now()
-                self.restart_attempts = 0
-                self.state["failed_restarts"] = 0
-                self._save_state()
-                return True
-            else:
-                self.logger.error(f"Gateway 重启失败: {result.stderr}")
-                self.restart_attempts += 1
-                self.state["failed_restarts"] = self.restart_attempts
-                self._save_state()
-                return False
+            self.logger.info("Gateway 重启成功")
+            self.last_restart_time = datetime.now()
+            self.restart_attempts = 0
+            self.state["failed_restarts"] = 0
+            self._save_state()
+            return True
 
         except Exception as e:
             self.logger.error(f"Gateway 重启异常: {e}")

@@ -4,11 +4,12 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_PATH="/usr/bin/python3"
+MAIN_SCRIPT="$SCRIPT_DIR/scripts/main.py"
 
 echo "安装 memory-consolidator cron 任务..."
 
 # 添加 cron 任务
-(crontab -l 2>/dev/null | grep -v "memory-consolidator"; echo "*/50 * * * * $PYTHON_PATH $SCRIPT_DIR/main.py >> ~/.openclaw/logs/memory-consolidator-cron.log 2>&1") | crontab -
+(crontab -l 2>/dev/null | grep -v "memory-consolidator"; echo "*/50 * * * * $PYTHON_PATH $MAIN_SCRIPT >> ~/.openclaw/logs/memory-consolidator-cron.log 2>&1") | crontab -
 
 echo "Cron 任务已安装:"
 crontab -l | grep memory-consolidator

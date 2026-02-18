@@ -70,3 +70,62 @@ result = learner.process_video("https://youtube.com/watch?v=...")
 结果保存到 `/media/qingshan/D/videodown/`:
 - `url_YYYYMMDD_HHMMSS.json` - 网页内容
 - `video_YYYYMMDD_HHMMSS.json` - 视频转录
+
+## 智能搜索功能
+
+### IntelligentHandler
+
+自动判断用户意图，调用对应功能：
+
+```python
+from web_content_learner import IntelligentHandler
+
+handler = IntelligentHandler()
+
+# 自动判断意图并处理
+result = handler.process("什么是 AI")  # 意图: question
+result = handler.process("https://github.com/...")  # 意图: webpage
+result = handler.process("这个视频说了什么: https://...")  # 意图: video_transcribe
+```
+
+### 支持的意图
+
+| 意图 | 关键词 | 处理 |
+|------|--------|------|
+| search | 搜索、找 | Brave搜索 + LLM总结 |
+| question | 什么是、怎么、? | 搜索 + 总结 |
+| webpage | URL | 网页抓取 + LLM总结 |
+| video_download | 下载 | 视频下载 |
+| video_transcribe | 转文字、字幕 | 视频转文字 |
+
+### SmartSearcher
+
+类似 Tavily 的搜索功能：
+
+```python
+from web_content_learner import SmartSearcher, ContentLearner
+
+# 方法1：通过 ContentLearner
+learner = ContentLearner()
+result = learner.smart_search("什么是 GraphRAG")
+
+# 返回
+{
+    "success": True,
+    "query": "什么是 GraphRAG",
+    "answer": "GraphRAG 是微软的...",  # LLM 总结
+    "sources": [{"title": "...", "url": "..."}]
+}
+```
+
+### Brave Search
+
+直接使用 Brave API 搜索：
+
+```python
+from web_content_learner import BraveSearcher
+
+searcher = BraveSearcher()
+result = searcher.search("AI news", count=5)
+# 返回: [{"title": "...", "url": "...", "description": "..."}]
+```

@@ -5,6 +5,25 @@ description: "Run Claude Code (Anthropic) from this host via the `claude` CLI (A
 
 # Claude Code (OpenClaw)
 
+## ⚠️ Important: Which tool to use?
+
+| Situation | Use | Command |
+|-----------|-----|---------|
+| **Simple code task** | code skill | `claude_code_run.py -p "..."` |
+| **Need Telegram callback** | hooks skill | `dispatch-claude-code.sh -p "..." -n "..." -g "..."` |
+
+**When to use hooks skill:**
+- Task needs to notify user via Telegram when done
+- Task result should be sent to a group chat
+- Background task with callback
+
+**When to use code skill:**
+- Simple one-off code tasks
+- No callback needed
+- Direct output to console
+
+---
+
 Use the locally installed **Claude Code** CLI reliably.
 
 This skill supports two execution styles:
