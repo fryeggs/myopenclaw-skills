@@ -697,11 +697,20 @@ class ASMMonitor:
             # 等待 Gateway 初始化
             time.sleep(30)
             
-            # Claude Code 验证 Gateway 状态
-            if self._verify_gateway_with_claude():
-                self.logger.info("✅ Gateway 验证成功")
+            # 先运行 doctor 检查系统健康
+            self.logger.info("运行 doctor 健康检查...")
+            if self._run_doctor_check():
+                self.logger.info("✅ Doctor 检查通过")
+                
+                # Doctor 通过后，验证 Gateway 状态
+                if self._verify_gateway_with_claude():
+                    self.logger.info("✅ Gateway 验证成功")
+                else:
+                    self.logger.warning("⚠️ Gateway 验证失败，调用 Claude Code 修复...")
+                    self._call_claude_code_fix("Gateway 验证失败")
             else:
-                self.logger.warning("⚠️ Gateway 验证失败")
+                self.logger.warning("⚠️ Doctor 检查失败，调用 Claude Code 修复...")
+                self._call_claude_code_fix("Doctor 检查失败")
             
             return True
 
@@ -734,6 +743,61 @@ class ASMMonitor:
                 
         except Exception as e:
             self.logger.error(f"Gateway 验证异常: {e}")
+            return False
+    
+    def _run_doctor_check(self) -> bool:
+        """
+        运行 doctor 检查系统健康
+        """
+        import subprocess
+        
+        try:
+            self.logger.info("运行 doctor 健康检查...")
+            result = subprocess.run(
+                ["/usr/bin/openclaw", "doctor", "--non-interactive"],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            if result.returncode == 0:
+                self.logger.info("✅ Doctor 检查通过")
+                return True
+            else:
+                self.logger.warning(f"⚠️ Doctor 检查异常: {result.stderr[:200]}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Doctor 检查异常: {e}")
+            return False
+    
+    def _call_claude_code_fix(self, reason: str) -> bool:
+        """
+        调用 Claude Code 自动修复
+        """
+        import subprocess
+        
+        try:
+            self.logger.info(f"调用 Claude Code 修复: {reason}")
+            result = subprocess.run(
+                ["/home/qingshan/.local/bin/claude", "-p", 
+                 f"OpenClaw 系统问题: {reason}，请检查并自动修复",
+                 "--dangerouslyAssumePermissionsWouldBeGrantedYes",
+                 "--maxTurns", "1"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                self.logger.info("✅ Claude Code 修复完成")
+                return True
+            else:
+                self.logger.error(f"❌ Claude Code 修复失败: {result.stderr[:200]}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Claude Code 调用异常: {e}")
             return False
     
     def notify_feed(self, message: str, topic_id: int = 1816) -> bool:
