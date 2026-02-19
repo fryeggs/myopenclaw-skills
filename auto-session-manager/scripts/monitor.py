@@ -693,6 +693,16 @@ class ASMMonitor:
             self.restart_attempts = 0
             self.state["failed_restarts"] = 0
             self._save_state()
+            
+            # 等待 Gateway 初始化
+            time.sleep(30)
+            
+            # Claude Code 验证 Gateway 状态
+            if self._verify_gateway_with_claude():
+                self.logger.info("✅ Gateway 验证成功")
+            else:
+                self.logger.warning("⚠️ Gateway 验证失败")
+            
             return True
 
         except Exception as e:
@@ -700,6 +710,32 @@ class ASMMonitor:
             self.restart_attempts += 1
             return False
 
+    def _verify_gateway_with_claude(self) -> bool:
+        """
+        用 Claude Code 验证 Gateway 状态
+        """
+        import subprocess
+        
+        try:
+            # 检查 Gateway 状态
+            result = subprocess.run(
+                ["/usr/bin/openclaw", "status"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and "healthy" in result.stdout.lower():
+                self.logger.info(f"Gateway 状态: {result.stdout[:200]}")
+                return True
+            else:
+                self.logger.warning(f"Gateway 状态异常: {result.stdout[:200]}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Gateway 验证异常: {e}")
+            return False
+    
     def notify_feed(self, message: str, topic_id: int = 1816) -> bool:
         """
         发送通知到 feed topic
