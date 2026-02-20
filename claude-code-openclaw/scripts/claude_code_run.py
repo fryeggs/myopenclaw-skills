@@ -53,6 +53,14 @@ def build_headless_cmd(args: argparse.Namespace) -> list[str]:
 
     if args.permission_mode:
         cmd += ["--permission-mode", args.permission_mode]
+    
+    # Agent Teams support (using --agents parameter)
+    if args.agent_teams:
+        # Default Agent Teams config for parallel development
+        agents_config = '{"lead": {"description": "Lead developer", "prompt": "你负责协调整个开发任务，分发给子 agent 并汇总结果"}}'
+        cmd += ["--agents", agents_config]
+        if args.teammate_mode:
+            cmd += ["--teammate-mode", args.teammate_mode]
 
     if args.prompt is not None:
         cmd += ["-p", args.prompt]
@@ -233,6 +241,10 @@ def main() -> int:
     ap.add_argument("--tmux-socket-name", default="claude-code.sock", help="tmux socket file name")
     ap.add_argument("--interactive-wait-s", type=int, default=0, help="Wait N seconds then print a tmux output snapshot")
     ap.add_argument("--interactive-send-delay-ms", type=int, default=800, help="Delay between sending lines in interactive mode")
+    
+    # Agent Teams support
+    ap.add_argument("--agent-teams", dest="agent_teams", action="store_true", help="Enable Agent Teams mode")
+    ap.add_argument("--teammate-mode", dest="teammate_mode", default="auto", choices=["auto", "in-process", "tmux"], help="Agent Teams display mode")
 
     ap.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args after --")
 
