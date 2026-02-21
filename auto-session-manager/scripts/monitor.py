@@ -688,12 +688,8 @@ class ASMMonitor:
                 stderr=subprocess.STDOUT
             )
 
-            self.logger.info("Gateway 重启成功")
-            self.last_restart_time = datetime.now()
-            self.restart_attempts = 0
-            self.state["failed_restarts"] = 0
-            self._save_state()
-            
+            self.logger.info("Gateway 启动命令已发出，等待初始化...")
+
             # 等待 Gateway 初始化
             time.sleep(30)
             
@@ -701,18 +697,26 @@ class ASMMonitor:
             self.logger.info("运行 doctor 健康检查...")
             if self._run_doctor_check():
                 self.logger.info("✅ Doctor 检查通过")
-                
+
                 # Doctor 通过后，验证 Gateway 状态
                 if self._verify_gateway_with_claude():
                     self.logger.info("✅ Gateway 验证成功")
+                    self.last_restart_time = datetime.now()
+                    self.restart_attempts = 0
+                    self.state["failed_restarts"] = 0
+                    self._save_state()
+                    self.notify_feed("✅ Gateway 已恢复正常运行", topic_id=1816)
+                    return True
                 else:
                     self.logger.warning("⚠️ Gateway 验证失败，调用 Claude Code 修复...")
                     self._call_claude_code_fix("Gateway 验证失败")
+                    self.restart_attempts += 1
+                    return False
             else:
                 self.logger.warning("⚠️ Doctor 检查失败，调用 Claude Code 修复...")
                 self._call_claude_code_fix("Doctor 检查失败")
-            
-            return True
+                self.restart_attempts += 1
+                return False
 
         except Exception as e:
             self.logger.error(f"Gateway 重启异常: {e}")
@@ -776,28 +780,35 @@ class ASMMonitor:
         调用 Claude Code 自动修复
         """
         import subprocess
-        
+
         try:
             self.logger.info(f"调用 Claude Code 修复: {reason}")
+            # 通知 feed 正在修复
+            self.notify_feed(f"🔧 检测到 {reason}，正在调用 Claude Code 修复...", topic_id=1816)
+
             result = subprocess.run(
-                ["/home/qingshan/.local/bin/claude", "-p", 
+                ["/home/qingshan/.local/bin/claude", "-p",
                  f"OpenClaw 系统问题: {reason}，请检查并自动修复",
-                 "--dangerouslyAssumePermissionsWouldBeGrantedYes",
+                 "--yes",
                  "--maxTurns", "1"],
                 capture_output=True,
                 text=True,
                 timeout=300
             )
-            
+
             if result.returncode == 0:
                 self.logger.info("✅ Claude Code 修复完成")
+                self.notify_feed(f"✅ Claude Code 修复成功: {reason}", topic_id=1816)
                 return True
             else:
-                self.logger.error(f"❌ Claude Code 修复失败: {result.stderr[:200]}")
+                error_msg = result.stderr[:200] if result.stderr else "未知错误"
+                self.logger.error(f"❌ Claude Code 修复失败: {error_msg}")
+                self.notify_feed(f"❌ Claude Code 修复失败: {reason} - {error_msg}", topic_id=1816)
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Claude Code 调用异常: {e}")
+            self.notify_feed(f"❌ Claude Code 调用异常: {reason} - {str(e)}", topic_id=1816)
             return False
     
     def notify_feed(self, message: str, topic_id: int = 1816) -> bool:
@@ -826,15 +837,159 @@ class ASMMonitor:
             )
 
             if result.returncode == 0:
-                self.logger.info(f"Feed 通知已发送: {message}")
-                return True
+                self.logger.info(f"Telegram Feed 通知已发送: {message}")
             else:
-                self.logger.error(f"Feed 通知失败: {result.stderr}")
-                return False
+                self.logger.error(f"Telegram Feed 通知失败: {result.stderr}")
+            
+            # 钉钉通知暂时跳过（target ID 配置问题）
+            self.logger.info(f"钉钉通知暂时跳过，需要手动配置")
+            return True
 
         except Exception as e:
             self.logger.error(f"发送通知异常: {e}")
             return False
+
+    def check_clash_health(self) -> Dict:
+        """
+        检查 Clash 核心健康状态
+
+        Returns:
+            Dict: {status, core_running, service_running, ports_open}
+        """
+        import subprocess
+
+        result = {
+            "status": "unknown",
+            "core_running": False,
+            "service_running": False,
+            "ports_open": {},
+            "error": None,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        try:
+            # 1. 检查 clash-verge-service 进程
+            svc_result = subprocess.run(
+                ["pgrep", "-f", "clash-verge-service"],
+                capture_output=True,
+                text=True
+            )
+            result["service_running"] = svc_result.returncode == 0
+
+            # 2. 检查 mihomo 核心进程
+            core_result = subprocess.run(
+                ["pgrep", "-f", "mihomo"],
+                capture_output=True,
+                text=True
+            )
+            result["core_running"] = core_result.returncode == 0
+
+            # 3. 检查代理端口
+            ports_result = subprocess.run(
+                ["ss", "-tlnp"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            for port in ["7890", "7891", "7892", "7897"]:
+                if f":{port}" in ports_result.stdout:
+                    result["ports_open"][port] = True
+
+            # 确定状态
+            if result["core_running"] and result["ports_open"]:
+                result["status"] = "healthy"
+            elif result["service_running"] and not result["core_running"]:
+                result["status"] = "service_only"
+            else:
+                result["status"] = "not_running"
+
+        except Exception as e:
+            result["status"] = "error"
+            result["error"] = str(e)
+            self.logger.error(f"检查 Clash 状态失败: {e}")
+
+        return result
+
+    def restart_clash_core(self) -> Dict:
+        """
+        尝试启动 Clash 核心
+
+        Returns:
+            Dict: {success, method, error}
+        """
+        import subprocess
+
+        result = {
+            "success": False,
+            "method": None,
+            "error": None,
+        }
+
+        try:
+            # 方法1: 通过 systemctl 重启 clash-verge
+            svc_result = subprocess.run(
+                ["systemctl", "restart", "clash-verge"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if svc_result.returncode == 0:
+                result["success"] = True
+                result["method"] = "systemctl restart clash-verge"
+                self.logger.info("Clash 核心已通过 systemctl 重启")
+                time.sleep(3)
+            else:
+                # 方法2: 尝试通过用户进程启动
+                display = os.environ.get("DISPLAY")
+                if display:
+                    subprocess.run(
+                        ["clash-verge", "--minimize"],
+                        capture_output=True,
+                        timeout=10,
+                        env={**os.environ, "DISPLAY": display}
+                    )
+                    result["method"] = "clash-verge --minimize"
+                    result["success"] = True
+                    self.logger.info("Clash 核心已尝试通过 GUI 启动")
+                else:
+                    # 方法2: 直接尝试运行 mihomo 核心（如果配置文件存在）
+                    mihomo_paths = [
+                        Path.home() / ".config" / "clash-verge" / "config.yaml",
+                        Path.home() / ".config" / "mihomo" / "config.yaml",
+                        Path("/etc/clash/config.yaml"),
+                    ]
+                    
+                    for config_path in mihomo_paths:
+                        if config_path.exists():
+                            try:
+                                # 以后台方式启动 mihomo
+                                subprocess.Popen(
+                                    ["mihomo", "-f", str(config_path), "-d", str(config_path.parent)],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL
+                                )
+                                result["method"] = f"mihomo -f {config_path.name}"
+                                result["success"] = True
+                                self.logger.info(f"Clash 核心已通过 mihomo 启动: {config_path}")
+                                break
+                            except FileNotFoundError:
+                                continue
+                    
+                    if not result["success"]:
+                        result["error"] = "无法找到启动方式（无 GUI 会话且 mihomo 不可用）"
+
+        except FileNotFoundError:
+            result["error"] = "clash-verge 命令不存在"
+            self.logger.error("clash-verge 命令未找到")
+        except subprocess.TimeoutExpired:
+            result["error"] = "启动超时"
+            self.logger.error("Clash 启动超时")
+        except Exception as e:
+            result["error"] = str(e)
+            self.logger.error(f"重启 Clash 失败: {e}")
+
+        return result
 
     def check_minimax_quota(self) -> Dict:
         """
@@ -1024,7 +1179,63 @@ class ASMMonitor:
         else:
             self.state["dingtalk_downtime_start"] = None
 
-        # 5. 检查 MiniMax 额度
+        # 5. 检查 Clash 核心状态
+        clash_status = self.check_clash_health()
+        results["clash"] = clash_status
+        self.logger.info(f"Clash 状态: {clash_status['status']}")
+
+        # Clash 核心未运行时尝试启动（service_only 或 not_running 都算异常）
+        if clash_status["status"] in ["not_running", "service_only"]:
+            # 添加冷却时间检查，避免频繁通知
+            last_clash_notify = self.state.get("last_clash_notify_time")
+            should_notify = True
+
+            if last_clash_notify:
+                last_time = datetime.fromisoformat(last_clash_notify)
+                if (datetime.now() - last_time).total_seconds() < 3600:  # 1小时内不重复通知
+                    should_notify = False
+
+            if should_notify:
+                self.logger.warning("Clash 核心未运行，尝试启动...")
+                restart_result = self.restart_clash_core()
+                self.state["last_clash_notify_time"] = datetime.now().isoformat()
+
+                # 重启失败计数
+                if not restart_result.get("success"):
+                    self.state["clash_restart_failures"] = self.state.get("clash_restart_failures", 0) + 1
+                else:
+                    self.state["clash_restart_failures"] = 0
+
+                if restart_result.get("success"):
+                    self.notify_feed("⚠️ Clash 核心未运行，已自动重启", topic_id=1816)
+                else:
+                    self.notify_feed(f"⚠️ Clash 核心未运行，自动重启失败: {restart_result.get('error', '未知错误')}", topic_id=1816)
+
+                    # 重启失败超过 3 次，调用 Claude Code 修复
+                    if self.state.get("clash_restart_failures", 0) >= 3:
+                        self.logger.error("Clash 连续重启失败，触发 Claude Code 介入修复...")
+                        self.notify_feed("⚠️ Clash 连续重启失败（3次），正在调用 Claude Code 修复...", topic_id=1816)
+
+                        # 调用 Claude Code
+                        fix_script = Path(__file__).parent.parent.parent.parent / "usr" / "bin" / "claude"
+                        if fix_script.exists():
+                            import subprocess
+                            try:
+                                subprocess.run(
+                                    [sys.executable, str(fix_script), "-p",
+                                     "Clash 核心持续故障，请诊断并修复。可能需要安装 mihomo 或手动启动 Clash GUI。"],
+                                    timeout=60
+                                )
+                                self.notify_feed("🔧 Claude Code 已尝试修复 Clash", topic_id=1816)
+                            except Exception as e:
+                                self.logger.error(f"Claude Code 修复调用失败: {e}")
+                        else:
+                            self.notify_feed("❌ Claude Code 路径不存在，需要手动处理", topic_id=1816)
+
+                        # 重置计数
+                        self.state["clash_restart_failures"] = 0
+
+        # 6. 检查 MiniMax 额度
         quota = self.check_minimax_quota()
         results["minimax"] = quota
         self.logger.info(f"MiniMax 额度状态: {quota['status']}")
